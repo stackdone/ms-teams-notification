@@ -21,8 +21,8 @@ a native Adaptive Card, so it works with current Teams webhooks.
 ## What it sends
 
 - Title with a ✅ / ⚠️ / ❌ status color
-- Facts: repository & branch, workflow (run number + total duration), event,
-  status, actor, date
+- Facts: repository, branch (the real source branch on PR runs, not `N/merge`),
+  workflow (run number + total duration), event, status, actor, date
 - Per-job breakdown: ✓/✗/» status, link and duration for every completed job
   (`include-jobs: on-failure` shows it only when something went wrong)
 - The triggering commit's full message
