@@ -1,0 +1,104 @@
+name: "MS Teams Notification (Adaptive Card)"
+description: >-
+  Send a rich Adaptive Card build/deploy notification to a Microsoft Teams
+  channel via a "Workflows" (Power Automate) webhook. Includes the commit
+  message, a clickable list of changed files, and action buttons for the
+  run, commit and PR.
+author: "Bohdan Klymonchuk"
+
+branding:
+  icon: "message-square"
+  color: "blue"
+
+inputs:
+  webhook-url:
+    description: "Teams 'Workflows' webhook URL (NOT the legacy Incoming Webhook connector — see README)."
+    required: true
+  status:
+    description: "Job/workflow result, e.g. success, failure, cancelled."
+    required: true
+  app-name:
+    description: "Name shown in the card title, e.g. 'my-app'."
+    required: false
+    default: ${{ github.repository }}
+  github-token:
+    description: "Token used to fetch the commit message, changed files and job statuses via the GitHub REST API. Omit to skip those sections (needs 'contents: read' + 'actions: read')."
+    required: false
+    default: ""
+  include-jobs:
+    description: "Add a per-job status/duration breakdown: 'true', 'false', or 'on-failure' (only when status isn't success). Needs github-token."
+    required: false
+    default: "true"
+  run-id:
+    description: "Workflow run ID used to fetch run/job details."
+    required: false
+    default: ${{ github.run_id }}
+  workflow-name:
+    description: "Workflow name shown in the card."
+    required: false
+    default: ${{ github.workflow }}
+  repo:
+    description: "owner/repo, used for API + link URLs."
+    required: false
+    default: ${{ github.repository }}
+  sha:
+    description: "Commit SHA to look up and link to."
+    required: false
+    default: ${{ github.sha }}
+  ref-name:
+    description: "Branch or tag name shown in the card."
+    required: false
+    default: ${{ github.ref_name }}
+  event-name:
+    description: "Triggering event name shown in the card."
+    required: false
+    default: ${{ github.event_name }}
+  actor:
+    description: "Actor shown in the card."
+    required: false
+    default: ${{ github.actor }}
+  run-url:
+    description: "URL for the 'View run' button."
+    required: false
+    default: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+  commit-url:
+    description: "URL for the 'View commit' button."
+    required: false
+    default: "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+  ref-url:
+    description: "URL the branch/tag name links to."
+    required: false
+    default: "${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref }}"
+  pr-number:
+    description: "Pull request number, adds a 'View PR' button when set."
+    required: false
+    default: ""
+  max-files:
+    description: "Maximum number of changed files to list before collapsing to '…and N more'."
+    required: false
+    default: "15"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Send Teams notification
+      shell: bash
+      env:
+        WEBHOOK: ${{ inputs.webhook-url }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repo }}
+        SHA: ${{ inputs.sha }}
+        STATUS: ${{ inputs.status }}
+        APP_NAME: ${{ inputs.app-name }}
+        EVENT_NAME: ${{ inputs.event-name }}
+        REF_NAME: ${{ inputs.ref-name }}
+        ACTOR: ${{ inputs.actor }}
+        RUN_URL: ${{ inputs.run-url }}
+        COMMIT_URL: ${{ inputs.commit-url }}
+        REF_URL: ${{ inputs.ref-url }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        MAX_FILES: ${{ inputs.max-files }}
+        INCLUDE_JOBS: ${{ inputs.include-jobs }}
+        RUN_ID: ${{ inputs.run-id }}
+        WORKFLOW_NAME: ${{ inputs.workflow-name }}
+      run: "${{ github.action_path }}/send.sh"

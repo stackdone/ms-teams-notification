@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# editors / local tooling
+.idea/
+.vscode/
+
+# local test leftovers
+*.log

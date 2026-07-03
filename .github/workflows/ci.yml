@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint send.sh
+        run: shellcheck send.sh
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      matrix:
+        include:
+          - status: success
+            expected-color: Good
+          - status: failure
+            expected-color: Attention
+          - status: cancelled
+            expected-color: Warning
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start mock Teams webhook
+        run: |
+          cat > mock_server.py <<'EOF'
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          import pathlib
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                  pathlib.Path("/tmp/teams-received.json").write_bytes(body)
+                  self.send_response(200)
+                  self.end_headers()
+                  self.wfile.write(b"OK")
+
+          HTTPServer(("127.0.0.1", 8631), Handler).serve_forever()
+          EOF
+          nohup python3 mock_server.py > mock_server.log 2>&1 &
+          sleep 1
+
+      - name: Run the action against the mock webhook
+        uses: ./
+        with:
+          webhook-url: http://127.0.0.1:8631/webhook
+          status: ${{ matrix.status }}
+          app-name: ci-test
+          github-token: ${{ github.token }}
+          pr-number: ${{ github.event_name == 'pull_request' && github.event.number || '' }}
+
+      - name: Verify the payload is a valid Adaptive Card message
+        run: |
+          jq -e '
+            .type == "message"
+            and .attachments[0].contentType == "application/vnd.microsoft.card.adaptive"
+            and .attachments[0].content.type == "AdaptiveCard"
+            and .attachments[0].content.body[0].color == "${{ matrix.expected-color }}"
+            and ([.attachments[0].content.body[] | select(.type == "FactSet")] | length) == 1
+            and ([.attachments[0].content.body[0:2][] | .facts // [] | .[] | select(.title == "Workflow")] | length) == 1
+            and ([.attachments[0].content.actions[] | select(.type == "Action.OpenUrl")] | length) >= 2
+          ' /tmp/teams-received.json
+          echo "Payload OK:"
+          jq . /tmp/teams-received.json
