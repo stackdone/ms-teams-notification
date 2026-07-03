@@ -1,9 +1,7 @@
 name: "MS Teams Notification (Adaptive Card)"
 description: >-
-  Send a rich Adaptive Card build/deploy notification to a Microsoft Teams
-  channel via a "Workflows" (Power Automate) webhook. Includes the commit
-  message, a clickable list of changed files, and action buttons for the
-  run, commit and PR.
+  Send a rich Adaptive Card notification to Microsoft Teams via a Workflows
+  webhook: status, jobs, commit, files, buttons.
 author: "Bohdan Klymonchuk"
 
 branding:
