@@ -38,7 +38,9 @@ if [ -n "$GH_TOKEN" ]; then
   fi
 fi
 
-# fmtdur turns seconds into "1h 2m 3s" (leading zero units dropped)
+# fmtdur turns seconds into "1h 2m 3s" (leading zero units dropped);
+# $h/$m/$s below are jq variables, so no shell expansion is wanted here
+# shellcheck disable=SC2016
 JQ_FMTDUR='def fmtdur: floor
   | (. / 3600 | floor) as $h | (. % 3600 / 60 | floor) as $m | (. % 60) as $s
   | (if $h > 0 then "\($h)h " else "" end)
