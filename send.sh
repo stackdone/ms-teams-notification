@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ -z "${WEBHOOK:-}" ]; then
+  echo "::error::webhook-url is empty. Set the Teams Workflows webhook URL (usually via a repo/org secret, e.g. secrets.TEAMS_WEBHOOK_URL). Note: secrets are not available to pull_request runs from forks."
+  exit 1
+fi
 echo "::add-mask::$WEBHOOK"
 
 API="${GITHUB_API_URL:-https://api.github.com}"
@@ -67,6 +71,17 @@ if [ -n "$GH_TOKEN" ] && [ -n "${RUN_ID:-}" ]; then
     PR_NUMBER=$(echo "$RUN_JSON" | jq -r '(.pull_requests // [])[0].number // ""')
   fi
 
+  # pull_request runs get a synthetic "N/merge" ref — show the real source branch instead
+  case "$REF_NAME" in
+    */merge)
+      HEAD_REF=$(echo "$RUN_JSON" | jq -r '(.pull_requests // [])[0].head.ref // .head_branch // ""')
+      if [ -n "$HEAD_REF" ]; then
+        REF_NAME="$HEAD_REF"
+        REF_URL="$SERVER/$REPO/tree/$HEAD_REF"
+      fi
+      ;;
+  esac
+
   # per-job status + duration, e.g. "✓ [build](url) — 1m 12s"
   if [ "${INCLUDE_JOBS:-true}" = "true" ] || { [ "${INCLUDE_JOBS:-true}" = "on-failure" ] && [ "$STATUS" != "success" ]; }; then
     JOBS_JSON=$(gh_api "$API/repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100")
@@ -100,6 +115,7 @@ jq -n \
   --arg ref "$REF_NAME" --arg event "$EVENT_NAME" --arg actor "$ACTOR" \
   --arg status "$STATUS_UPPER" --arg sentAt "$SENT_AT" \
   --arg refUrl "$REF_URL" \
+  --arg repo "$REPO" --arg repoUrl "$SERVER/$REPO" \
   --arg message "$COMMIT_MESSAGE" --arg files "$FILES_LIST" \
   --arg runUrl "$RUN_URL" --arg commitUrl "$COMMIT_URL" \
   --arg prUrl "$PR_URL" \
@@ -116,7 +132,10 @@ jq -n \
           [
             { type: "TextBlock", size: "Medium", weight: "Bolder", color: $color, text: $title },
             { type: "FactSet", facts: (
-              [{ title: "Repository & branch", value: "[\($ref)](\($refUrl))" }]
+              [
+                { title: "Repository", value: "[\($repo)](\($repoUrl))" },
+                { title: "Branch", value: "[\($ref)](\($refUrl))" }
+              ]
               + (if $workflow == "" then [] else [{ title: "Workflow", value: $workflow }] end)
               + [
                 { title: "Event",  value: $event },
