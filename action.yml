@@ -71,10 +71,14 @@ inputs:
     description: "Pull request number, adds a 'View PR' button when set."
     required: false
     default: ""
-  max-files:
-    description: "Maximum number of changed files to list before collapsing to '…and N more'."
+  max-jobs:
+    description: "Jobs shown up front; the rest are collapsed behind an expandable '…and N more' line."
     required: false
-    default: "15"
+    default: "5"
+  max-files:
+    description: "Changed files shown up front; the rest are collapsed behind an expandable 'Show N more files' button."
+    required: false
+    default: "5"
 
 runs:
   using: "composite"
@@ -96,6 +100,7 @@ runs:
         REF_URL: ${{ inputs.ref-url }}
         PR_NUMBER: ${{ inputs.pr-number }}
         MAX_FILES: ${{ inputs.max-files }}
+        MAX_JOBS: ${{ inputs.max-jobs }}
         INCLUDE_JOBS: ${{ inputs.include-jobs }}
         RUN_ID: ${{ inputs.run-id }}
         WORKFLOW_NAME: ${{ inputs.workflow-name }}

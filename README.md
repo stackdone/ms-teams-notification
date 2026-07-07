@@ -24,9 +24,11 @@ a native Adaptive Card, so it works with current Teams webhooks.
 - Facts: repository, branch (the real source branch on PR runs, not `N/merge`),
   workflow (run number + total duration), event, status, actor, date
 - Per-job breakdown: ✓/✗/» status, link and duration for every completed job
-  (`include-jobs: on-failure` shows it only when something went wrong)
+  (`include-jobs: on-failure` shows it only when something went wrong); long
+  lists collapse behind a clickable "…and N more"
 - The triggering commit's full message
-- A clickable list of changed files (links to each file's blob at that commit)
+- A clickable list of changed files (links to each file's blob at that commit);
+  long lists collapse behind an expandable "Show N more files" button
 - Buttons: **View run**, **View commit**, and **View PR** (added automatically
   when the run belongs to a pull request, or via `pr-number`)
 
@@ -89,7 +91,8 @@ only the status card with buttons is sent:
 | `commit-url`   | no       | link to the commit                                   | "View commit" button target                                 |
 | `ref-url`      | no       | link to the branch/tag tree                          | Branch/tag fact link target                                  |
 | `pr-number`    | no       | auto-detected from the run                           | Overrides the PR used for the "View PR" button               |
-| `max-files`    | no       | `15`                                                 | Changed files shown before collapsing to "…and N more"       |
+| `max-files`    | no       | `5`                                                  | Changed files shown up front; the rest expand via a clickable "…and N more" |
+| `max-jobs`     | no       | `5`                                                  | Jobs shown up front; the rest expand via a clickable "…and N more" |
 
 ## Setting up the webhook
 
