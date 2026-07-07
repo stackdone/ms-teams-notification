@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # $vars inside single-quoted strings are jq variables, not shell
 set -euo pipefail
 
 if [ -z "${WEBHOOK:-}" ]; then
@@ -25,26 +26,30 @@ fi
 
 COMMIT_MESSAGE=""
 FILES_LIST=""
+FILES_MORE=""
+FILES_MORE_COUNT=0
 if [ -n "$GH_TOKEN" ]; then
   COMMIT_JSON=$(gh_api "$API/repos/$REPO/commits/$SHA")
   COMMIT_MESSAGE=$(echo "$COMMIT_JSON" | jq -r '.commit.message // ""')
   FILE_COUNT=$(echo "$COMMIT_JSON" | jq -r '(.files // []) | length')
   # each filename links to its blob at this commit; path segments are
   # percent-encoded individually so '/' stays a separator, not %2F
-  FILES_LIST=$(echo "$COMMIT_JSON" | jq -r --arg base "$SERVER/$REPO/blob/$SHA/" --argjson max "$MAX_FILES" '
-    [(.files // [])[].filename][:$max]
-    | map("• [" + . + "](" + $base + ((. / "/") | map(@uri) | join("/")) + ")")
-    | join("\n")
-  ')
+  JQ_FILELINKS='def filelinks($base): map("• [" + . + "](" + $base + ((. / "/") | map(@uri) | join("/")) + ")") | join("\n");'
+  FILES_LIST=$(echo "$COMMIT_JSON" | jq -r --arg base "$SERVER/$REPO/blob/$SHA/" --argjson max "$MAX_FILES" "
+    $JQ_FILELINKS
+    [(.files // [])[].filename][:\$max] | filelinks(\$base)
+  ")
   if [ "$FILE_COUNT" -gt "$MAX_FILES" ]; then
-    FILES_LIST="$FILES_LIST
-• …and $((FILE_COUNT - MAX_FILES)) more"
+    # the rest goes into a collapsed block the reader can expand in Teams
+    FILES_MORE=$(echo "$COMMIT_JSON" | jq -r --arg base "$SERVER/$REPO/blob/$SHA/" --argjson max "$MAX_FILES" "
+      $JQ_FILELINKS
+      [(.files // [])[].filename][\$max:] | filelinks(\$base)
+    ")
+    FILES_MORE_COUNT=$((FILE_COUNT - MAX_FILES))
   fi
 fi
 
-# fmtdur turns seconds into "1h 2m 3s" (leading zero units dropped);
-# $h/$m/$s below are jq variables, so no shell expansion is wanted here
-# shellcheck disable=SC2016
+# fmtdur turns seconds into "1h 2m 3s" (leading zero units dropped)
 JQ_FMTDUR='def fmtdur: floor
   | (. / 3600 | floor) as $h | (. % 3600 / 60 | floor) as $m | (. % 60) as $s
   | (if $h > 0 then "\($h)h " else "" end)
@@ -53,6 +58,9 @@ JQ_FMTDUR='def fmtdur: floor
 
 WORKFLOW_FACT=""
 JOBS_LIST=""
+JOBS_MORE=""
+JOBS_MORE_COUNT=0
+MAX_JOBS="${MAX_JOBS:-5}"
 if [ -n "$GH_TOKEN" ] && [ -n "${RUN_ID:-}" ]; then
   RUN_JSON=$(gh_api "$API/repos/$REPO/actions/runs/$RUN_ID")
 
@@ -85,9 +93,8 @@ if [ -n "$GH_TOKEN" ] && [ -n "${RUN_ID:-}" ]; then
   # per-job status + duration, e.g. "✓ [build](url) — 1m 12s"
   if [ "${INCLUDE_JOBS:-true}" = "true" ] || { [ "${INCLUDE_JOBS:-true}" = "on-failure" ] && [ "$STATUS" != "success" ]; }; then
     JOBS_JSON=$(gh_api "$API/repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100")
-    JOBS_LIST=$(echo "$JOBS_JSON" | jq -r "
-      $JQ_FMTDUR
-      [(.jobs // [])[] | select(.status == \"completed\")
+    JQ_JOBLINES="$JQ_FMTDUR
+      def joblines: [(.jobs // [])[] | select(.status == \"completed\")
         | (if .conclusion == \"success\" then \"✓\"
            elif .conclusion == \"failure\" then \"✗\"
            else \"»\" end) as \$icon
@@ -95,8 +102,18 @@ if [ -n "$GH_TOKEN" ] && [ -n "${RUN_ID:-}" ]; then
           + (if .started_at and .completed_at then
                \" — \((.completed_at | fromdateiso8601) - (.started_at | fromdateiso8601) | fmtdur)\"
              else \"\" end)
-      ] | join(\"\n\")
+      ];"
+    JOBS_LIST=$(echo "$JOBS_JSON" | jq -r --argjson max "$MAX_JOBS" "
+      $JQ_JOBLINES joblines[:\$max] | join(\"\n\")
     ")
+    JOBS_TOTAL=$(echo "$JOBS_JSON" | jq -r '[(.jobs // [])[] | select(.status == "completed")] | length')
+    if [ "$JOBS_TOTAL" -gt "$MAX_JOBS" ]; then
+      # the rest goes into a collapsed block the reader can expand in Teams
+      JOBS_MORE=$(echo "$JOBS_JSON" | jq -r --argjson max "$MAX_JOBS" "
+        $JQ_JOBLINES joblines[\$max:] | join(\"\n\")
+      ")
+      JOBS_MORE_COUNT=$((JOBS_TOTAL - MAX_JOBS))
+    fi
   fi
 fi
 
@@ -120,6 +137,8 @@ jq -n \
   --arg runUrl "$RUN_URL" --arg commitUrl "$COMMIT_URL" \
   --arg prUrl "$PR_URL" \
   --arg workflow "$WORKFLOW_FACT" --arg jobs "$JOBS_LIST" \
+  --arg filesMore "$FILES_MORE" --arg moreCount "$FILES_MORE_COUNT" \
+  --arg jobsMore "$JOBS_MORE" --arg jobsMoreCount "$JOBS_MORE_COUNT" \
   '{
     type: "message",
     attachments: [{
@@ -149,6 +168,19 @@ jq -n \
               { type: "TextBlock", weight: "Bolder", text: "Jobs", spacing: "Medium" },
               { type: "TextBlock", text: $jobs, wrap: true, isSubtle: true }
             ] end)
+          + (if $jobsMore == "" then [] else [
+              { type: "TextBlock", id: "moreJobs", text: $jobsMore,
+                wrap: true, isSubtle: true, isVisible: false, spacing: "None" },
+              { type: "ColumnSet", id: "moreJobsToggle", spacing: "None",
+                selectAction: { type: "Action.ToggleVisibility",
+                                targetElements: ["moreJobs", "moreJobsToggle"] },
+                columns: [
+                  { type: "Column", width: "auto", items: [
+                    { type: "TextBlock", text: "…and", isSubtle: true } ] },
+                  { type: "Column", width: "stretch", spacing: "Small", items: [
+                    { type: "TextBlock", text: "\($jobsMoreCount) more", color: "Accent" } ] }
+                ] }
+            ] end)
           + (if $message == "" then [] else [
               { type: "TextBlock", weight: "Bolder", text: "Commit message", spacing: "Medium" },
               { type: "TextBlock", text: $message, wrap: true, isSubtle: true }
@@ -156,6 +188,19 @@ jq -n \
           + (if $files == "" then [] else [
               { type: "TextBlock", weight: "Bolder", text: "Files changed", spacing: "Medium" },
               { type: "TextBlock", text: $files, wrap: true, isSubtle: true }
+            ] end)
+          + (if $filesMore == "" then [] else [
+              { type: "TextBlock", id: "moreFiles", text: $filesMore,
+                wrap: true, isSubtle: true, isVisible: false, spacing: "None" },
+              { type: "ColumnSet", id: "moreFilesToggle", spacing: "None",
+                selectAction: { type: "Action.ToggleVisibility",
+                                targetElements: ["moreFiles", "moreFilesToggle"] },
+                columns: [
+                  { type: "Column", width: "auto", items: [
+                    { type: "TextBlock", text: "• …and", isSubtle: true } ] },
+                  { type: "Column", width: "stretch", spacing: "Small", items: [
+                    { type: "TextBlock", text: "\($moreCount) more", color: "Accent" } ] }
+                ] }
             ] end)
         ),
         actions: (
